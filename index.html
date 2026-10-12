@@ -8,7 +8,7 @@
    RC_SERVER_BUILT 는 게임 파일을 만들 때 넣어 둔 기본 서버 주소예요. */
 window.RC_SERVER_BUILT = 'https://script.google.com/macros/s/AKfycbytfmUSBjs75fBRdoff25iMNZRQya4UPVDyU1aVWhQnYsfgRxiRtbSsd8WXyQhL-qXSWQ/exec';
 window.RC_FB_BUILT = {"apiKey": "AIzaSyBHy_sVHLKf_0bCF54kZ4DPjBAJnbV6xsg", "authDomain": "ratio-chronicle.firebaseapp.com", "databaseURL": "https://ratio-chronicle-default-rtdb.asia-southeast1.firebasedatabase.app", "projectId": "ratio-chronicle", "storageBucket": "ratio-chronicle.firebasestorage.app", "messagingSenderId": "195018984038", "appId": "1:195018984038:web:9ce3a4d8f7e824eb957ba7"};
-window.RC_BUILD = '2026.10.13 07:37';
+window.RC_BUILD = '2026.10.13 07:53';
 window.RC_SERVER = '';
 </script>
 <script src="config.js"></script>
@@ -2313,7 +2313,7 @@ function update(dt) {
   Net.update(dt);
   for (const e of G.ens) updateEnemy(e, dt);
   G.ens = G.ens.filter(e => !(e.dead && e.deadT > .5));
-  if (!G.map.noRespawn) if (Net.canSim()) for (const sp of G.spawners) if (sp.alive < sp.max && (sp.timer += dt) > 7) { sp.timer = 0; spawnMob(sp); }
+  if (!G.map.noRespawn) if (Net.canSim()) for (const sp of G.spawners) if (sp.alive < spMax(sp) && (sp.timer += dt) > spEvery(sp) && spRoom()) { sp.timer = 0; spawnMob(sp); }
   const mb = G.map.miniboss;
   if (mb && !G.save.flags[mb.flag] && !G.mini && P.x > mb.x1 - 150) { const e = makeEnemy(mb.kind, mb.x2 - 140, mb.y, mb.x1, mb.x2); e.aggro = 99; e.atkCd = 1.5; e.isMini = true; G.ens.push(e); G.mini = e; AU.sfx('roar'); shake(10); toast(e.d.name + '이 나타났어요!', 'warn'); }
   updateBoss(dt); bossAmbient(dt); updateShards(dt);
@@ -7673,6 +7673,28 @@ function grantPassNow(id, who, msg) {
 (() => { const base = UI.worldClear; UI.worldClear = function () { grantPassNow('pass_w2', '모스 촌장', '에게 사막 통행증을 받았어요! 바람개비 마을의 대상 마차를 타면 모래시계 사막으로 가요'); return base.apply(this, arguments); }; })();
 (() => { const base = w2Clear; w2Clear = function () { grantPassNow('pass_w3', '사하르 족장', '에게 설원 썰매표를 받았어요! 신기루 오아시스의 썰매 정류장에서 서리 협곡으로 가요'); return base.apply(this, arguments); }; })();
 (() => { const base = w3Clear; w3Clear = function () { grantPassNow('pass_w4', '하르마 촌장', '에게 구름 열기구 탑승권을 받았어요! 눈송이 마을의 열기구 정류장에서 구름 섬으로 가요'); return base.apply(this, arguments); }; })();
+
+/* 퀘스트 몬스터를 맵 곳곳에서 · 더 자주 · 사람이 많을수록 더 많이
+   - 처치 퀘스트 대상(새싹버섯 등)은 같은 맵 다른 몬스터 자리에서도 나와요.
+   - 다시 나오는 시간: 보통 7초, 퀘스트 대상 3.5초. 같은 맵에 사람이 많으면 더 빨라져요(최소 1.2초).
+   - 한 자리에 동시에 있는 수도 사람 수에 맞춰 늘어나요(최대 4배). 맵 전체는 45마리까지. */
+const QKILL = new Set(); for (const q of Object.values(QUESTS)) for (const st of q.steps || []) if (st.t === 'kill') QKILL.add(st.k);
+function spCrowd() { return Net.on ? 1 + Net.present().length : 1; }
+function spMax(sp) { const n = spCrowd(); return Math.min(sp.max * 4, Math.ceil(sp.max * (1 + .35 * (n - 1))) + (sp.quest && n > 1 ? 1 : 0)); }
+function spEvery(sp) { const n = spCrowd(); return Math.max(1.2, (sp.quest ? 3.5 : 7) / (1 + .3 * (n - 1))); }
+function spRoom() { let n = 0; for (const e of G.ens) if (!e.dead) n++; return n < 45; }
+(() => { const base = loadMap; loadMap = function (id, x, y) {
+  const r = base.apply(this, arguments); const m = MAPS[id]; if (!m || m.boss || m.chal || !G.spawners || !G.spawners.length) return r;
+  const isAir = k => { const d = ENEMIES[k]; return !d || d.fly || d.ai === 'flyer'; };
+  const ground = G.spawners.filter(o => !isAir(o.k));
+  for (const sp of G.spawners.slice()) {
+    if (!QKILL.has(sp.k) || isAir(sp.k) || sp.extra) continue; sp.quest = true;
+    const spots = ground.filter(o => o !== sp && o.k !== sp.k && Math.abs((o.x1 + o.x2) / 2 - (sp.x1 + sp.x2) / 2) > 260).sort((a, b) => a.x1 - b.x1);
+    const pickN = Math.min(5, spots.length), used = [];
+    for (let i = 0; i < pickN; i++) { const o = spots[Math.floor((i + .5) * spots.length / pickN)]; if (used.includes(o)) continue; used.push(o); const ex = { k: sp.k, x1: o.x1, x2: o.x2, y: o.y, max: Math.max(1, Math.ceil(sp.max / 2)), alive: 0, timer: 0, quest: true, extra: true }; G.spawners.push(ex); if (Net.canSim()) spawnMob(ex, true); }
+  }
+  return r;
+}; })();
 
 /* ================= BOOT ================= */
 let lastT = performance.now();
