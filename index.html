@@ -8,7 +8,7 @@
    RC_SERVER_BUILT 는 게임 파일을 만들 때 넣어 둔 기본 서버 주소예요. */
 window.RC_SERVER_BUILT = 'https://script.google.com/macros/s/AKfycbytfmUSBjs75fBRdoff25iMNZRQya4UPVDyU1aVWhQnYsfgRxiRtbSsd8WXyQhL-qXSWQ/exec';
 window.RC_FB_BUILT = null;
-window.RC_BUILD = '2026.10.12 17:05';
+window.RC_BUILD = '2026.10.12 22:13';
 window.RC_SERVER = '';
 </script>
 <script src="config.js"></script>
@@ -5729,7 +5729,7 @@ UI.rank = async (kind = 'level') => {
 
 /* 구글 Apps Script 서버 코드 (서버 연결 도우미에서 복사 버튼으로 씀) */
 const SERVER_GS = "/* =====================================================================\n   Ratio Chronicle 서버 (구글 시트 + Apps Script)\n   ---------------------------------------------------------------------\n   1) 구글 시트를 새로 만들고  확장 프로그램 > Apps Script  를 열어요.\n   2) 원래 있던 코드를 지우고 이 파일 내용을 전부 붙여 넣은 뒤 저장해요.\n   3) 배포 > 새 배포 > 유형 선택(톱니) > 웹 앱\n        실행 사용자: 나   /   액세스 권한이 있는 사용자: 모든 사용자\n      배포 > 권한 검토 > 계정 선택 > 고급 > (안전하지 않음)으로 이동 > 허용\n   4) 나온 웹 앱 URL(…/exec)을 게임 파일 맨 위 RC_SERVER 따옴표 안에 붙여 넣어요.\n   시트에 accounts(계정), saves(저장 + 랭킹) 탭이 자동으로 생겨요.\n   비밀번호는 원문이 아니라 기기에서 한 번, 서버에서 다시 소금을 쳐서 암호화한 값만 저장돼요.\n   ===================================================================== */\nconst DEV_ID = 'seojoonerang';          // 개발자 아이디\nconst DEV_CODE = 'ratio-dev-2026';      // 개발자 코드 (게임 파일의 CONFIG.DEV_CODE 와 같아야 해요)\nconst TOKEN_DAYS = 30;                  // 자동 로그인 유지 기간(일)\nconst ACC = ['id', 'name', 'role', 'salt', 'hash', 'token', 'tokenAt', 'fails', 'lockUntil', 'created', 'lastLogin', 'sess'];\nconst SAV = ['id', 'name', 'cls', 'level', 'exp', 'correct', 'total', 'first', 'tower', 'world', 'updated', 'save'];\n\nfunction doGet() { return out_({ ok: true, server: 'Ratio Chronicle', time: Date.now() }); }\nfunction doPost(e) {\n  let q;\n  try { q = JSON.parse(e.postData.contents); } catch (err) { return out_({ ok: false, err: '잘못된 요청이에요.' }); }\n  const fn = OPS[q && q.op];\n  if (!fn) return out_({ ok: false, err: '알 수 없는 요청이에요.' });\n  try { return out_(Object.assign({ ok: true }, fn(q))); }\n  catch (err) { return out_({ ok: false, err: String((err && err.message) || err), auth: !!(err && err.auth) }); }\n}\nfunction out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }\nfunction sheet_(name, head) {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let s = ss.getSheetByName(name);\n  if (!s) {\n    s = ss.insertSheet(name);\n    s.getRange('A:A').setNumberFormat('@');\n    s.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');\n    s.setFrozenRows(1);\n  }\n  return s;\n}\nfunction setting_(key) {\n  const ss = SpreadsheetApp.getActiveSpreadsheet();\n  let s = ss.getSheetByName('settings');\n  if (!s) { s = ss.insertSheet('settings'); s.getRange(1, 1, 3, 2).setValues([['설정', '값'], ['joinCode', ''], ['도움말', 'joinCode 옆 칸에 입장 코드를 적으면 가입할 때 그 코드가 필요해요. 비워 두면 누구나 가입할 수 있어요.']]); s.getRange('B:B').setNumberFormat('@'); s.setFrozenRows(1); }\n  const v = s.getRange(1, 1, Math.max(1, s.getLastRow()), 2).getValues();\n  for (const r of v) if (String(r[0]).trim() === key) return String(r[1] == null ? '' : r[1]).trim();\n  return '';\n}\nfunction find_(s, id) {\n  if (s.getLastRow() < 2) return 0;\n  const c = s.getRange(2, 1, s.getLastRow() - 1, 1).createTextFinder(id).matchCase(true).matchEntireCell(true).findNext();\n  return c ? c.getRow() : 0;\n}\nfunction row_(s, r, head) { const v = s.getRange(r, 1, 1, head.length).getValues()[0], o = {}; head.forEach((k, i) => o[k] = v[i]); return o; }\nfunction put_(s, r, head, o) { s.getRange(r, 1, 1, head.length).setValues([head.map(k => o[k] === undefined || o[k] === null ? '' : o[k])]); }\nfunction add_(s, head, o) { const r = s.getLastRow() + 1; put_(s, r, head, o); return r; }\nfunction lock_(f) { const L = LockService.getScriptLock(); L.waitLock(20000); try { return f(); } finally { L.releaseLock(); } }\nfunction err_(msg, auth) { const e = new Error(msg); if (auth) e.auth = true; return e; }\nfunction nid_(id) { id = String(id || '').trim().toLowerCase(); if (!/^[a-z0-9_]{4,16}$/.test(id)) throw err_('아이디는 영문, 숫자, _ 로 4~16자예요.'); return id; }\nfunction clean_(t) { return String(t == null ? '' : t).replace(/[\\u0000-\\u001f]/g, '').trim(); }\nfunction safe_(t) { t = clean_(t); return /^[=+\\-@]/.test(t) ? \"'\" + t : t; }\nfunction unsafe_(t) { return String(t == null ? '' : t).replace(/^'/, ''); }\nfunction hash_(salt, pw) { let h = salt + '|' + pw; for (let i = 0; i < 200; i++) h = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h, Utilities.Charset.UTF_8)); return h; }\nfunction newTok_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, ''); }\nfunction user_(a) { return { id: String(a.id), name: unsafe_(a.name), role: String(a.role || 'student') }; }\nfunction saveOf_(id) {\n  const s = sheet_('saves', SAV), r = find_(s, id);\n  if (!r) return { save: null, savedAt: 0 };\n  const v = row_(s, r, SAV);\n  return { save: v.save ? String(v.save) : null, savedAt: Number(v.updated) || 0 };\n}\nfunction auth_(q) {\n  const id = nid_(q.id), s = sheet_('accounts', ACC), r = find_(s, id);\n  if (!r) throw err_('계정을 찾을 수 없어요. 다시 로그인해 주세요.', true);\n  const a = row_(s, r, ACC);\n  if (!q.token || String(a.token) !== String(q.token) || Date.now() - Number(a.tokenAt) > TOKEN_DAYS * 864e5) throw err_('로그인이 만료됐어요. 다시 로그인해 주세요.', true);\n  return { s, r, a, id };\n}\nconst OPS = {\n  ping() { return { time: Date.now() }; },\n  check(q) { return { exists: !!find_(sheet_('accounts', ACC), nid_(q.id)) }; },\n  info() { return { needCode: !!setting_('joinCode') }; },\n  signup(q) {\n    const id = nid_(q.id), name = clean_(q.name).slice(0, 10), pw = String(q.pw || '');\n    if (name.length < 2) throw err_('게임 이름을 2자 이상 적어 주세요.');\n    if (!/^[0-9a-f]{64}$/.test(pw)) throw err_('비밀번호 정보가 올바르지 않아요. 게임 파일을 새로 받아 주세요.');\n    const dev = id === DEV_ID;\n    if (dev && String(q.devCode || '') !== DEV_CODE) throw err_('개발자 코드가 맞지 않아요.');\n    const jc = setting_('joinCode');\n    if (!dev && jc && String(q.joinCode || '').trim().toLowerCase() !== jc.toLowerCase()) throw err_('입장 코드가 맞지 않아요. 선생님께 받은 코드를 확인해 주세요.');\n    return lock_(() => {\n      const s = sheet_('accounts', ACC);\n      if (find_(s, id)) throw err_('이미 존재하는 아이디예요.');\n      const salt = Utilities.getUuid(), now = Date.now();\n      const a = { id, name: safe_(name), role: dev ? 'dev' : 'student', salt, hash: hash_(salt, pw), token: newTok_(), tokenAt: now, fails: 0, lockUntil: 0, created: new Date(now), lastLogin: new Date(now), sess: clean_(q.sess).slice(0, 40) };\n      add_(s, ACC, a);\n      return { user: user_(a), token: a.token, save: null, savedAt: 0 };\n    });\n  },\n  login(q) {\n    const id = nid_(q.id);\n    return lock_(() => {\n      const s = sheet_('accounts', ACC), r = find_(s, id);\n      if (!r) throw err_('아이디나 비밀번호가 맞지 않아요.');\n      const a = row_(s, r, ACC), now = Date.now();\n      if (Number(a.lockUntil) > now) throw err_('비밀번호를 여러 번 틀려서 잠겼어요. ' + Math.ceil((Number(a.lockUntil) - now) / 60000) + '분 뒤에 다시 해 주세요.');\n      if (hash_(a.salt, String(q.pw || '')) !== String(a.hash)) {\n        a.fails = (Number(a.fails) || 0) + 1;\n        if (a.fails >= 8) { a.lockUntil = now + 5 * 60000; a.fails = 0; }\n        put_(s, r, ACC, a);\n        throw err_('아이디나 비밀번호가 맞지 않아요.');\n      }\n      a.fails = 0; a.lockUntil = 0; a.lastLogin = new Date(now); a.sess = clean_(q.sess).slice(0, 40);\n      if (!a.token || now - Number(a.tokenAt) > TOKEN_DAYS * 864e5) { a.token = newTok_(); a.tokenAt = now; }\n      put_(s, r, ACC, a);\n      return Object.assign({ user: user_(a), token: String(a.token) }, saveOf_(id));\n    });\n  },\n  resume(q) {\n    return lock_(() => { const x = auth_(q); x.a.sess = clean_(q.sess).slice(0, 40); put_(x.s, x.r, ACC, x.a); return Object.assign({ user: user_(x.a), token: String(x.a.token) }, saveOf_(x.id)); });\n  },\n  save(q) {\n    const x = auth_(q), data = String(q.save || ''), m = q.sum || {};\n    if (data.length > 48000) throw err_('저장 데이터가 너무 커요.');\n    try { JSON.parse(data); } catch (e) { throw err_('저장 데이터가 올바르지 않아요.'); }\n    if (String(x.a.sess || '') && String(q.sess || '') !== String(x.a.sess)) return { conflict: true };\n    return lock_(() => {\n      const s = sheet_('saves', SAV), r = find_(s, x.id), now = Date.now();\n      const v = { id: x.id, name: safe_(user_(x.a).name), cls: clean_(m.cls).slice(0, 12), level: Number(m.level) || 1, exp: Number(m.exp) || 0, correct: Number(m.correct) || 0, total: Number(m.total) || 0, first: Number(m.first) || 0, tower: Number(m.tower) || 0, world: Number(m.world) || 0, updated: now, save: data };\n      if (r) put_(s, r, SAV, v); else add_(s, SAV, v);\n      return { savedAt: now };\n    });\n  },\n  rank(q) {\n    const s = sheet_('saves', SAV), n = s.getLastRow() - 1, me = String(q.id || '').trim().toLowerCase();\n    if (n < 1) return { rows: [], me: null, total: 0 };\n    const head = SAV.filter(k => k !== 'save'), vals = s.getRange(2, 1, n, head.length).getValues().map(v => { const o = {}; head.forEach((k, i) => o[k] = v[i]); return o; }).filter(x => String(x.id) && String(x.id) !== DEV_ID);\n    const kind = ['level', 'math', 'tower'].indexOf(q.kind) >= 0 ? q.kind : 'level';\n    const pool = kind === 'tower' ? vals.filter(x => Number(x.tower) > 0) : kind === 'math' ? vals.filter(x => Number(x.total) > 0) : vals;\n    const key = x => kind === 'math' ? (Number(x.correct) || 0) * 1e4 + (x.total ? Math.round(x.correct / x.total * 1000) : 0) : kind === 'tower' ? (Number(x.tower) || 0) * 1e6 + (Number(x.level) || 0) : (Number(x.level) || 0) * 1e9 + (Number(x.exp) || 0);\n    pool.sort((a, b) => key(b) - key(a) || Number(a.updated) - Number(b.updated));\n    const pub = (x, i) => ({ rank: i + 1, name: unsafe_(x.name), cls: String(x.cls), level: Number(x.level) || 1, correct: Number(x.correct) || 0, total: Number(x.total) || 0, tower: Number(x.tower) || 0, world: Number(x.world) || 0, me: !!me && String(x.id) === me });\n    const i = me ? pool.findIndex(x => String(x.id) === me) : -1;\n    return { rows: pool.slice(0, 30).map(pub), me: i >= 0 ? pub(pool[i], i) : null, total: pool.length };\n  },\n};\n";
-const FB_RULES = "{\n  \"rules\": {\n    \"net\": {\n      \".read\": true,\n      \"$room\": {\n        \"$map\": {\n          \"p\": { \"$uid\": { \".write\": true, \".validate\": \"!newData.exists() || (newData.hasChildren(['t', 'x', 'y']) && newData.child('x').isNumber() && newData.child('y').isNumber())\" } },\n          \"e\": { \"$uid\": { \".write\": true } },\n          \"m\": { \".write\": true }\n        }\n      }\n    },\n    \"chat\": {\n      \"$scope\": {\n        \".read\": true,\n        \"$msg\": {\n          \".write\": \"!data.exists()\",\n          \".validate\": \"newData.hasChildren(['u', 'n', 'm', 't']) && newData.child('m').isString() && newData.child('m').val().length <= 80 && newData.child('n').isString() && newData.child('n').val().length <= 20\"\n        }\n      }\n    },\n    \"pt\": { \"$pid\": { \".read\": true, \".write\": true } },\n    \"inv\": { \"$uid\": { \".read\": true, \".write\": true } }\n  }\n}\n";
+const FB_RULES = "{\n  \"rules\": {\n    \"net\": {\n      \".read\": true,\n      \"$room\": {\n        \"$map\": {\n          \"p\": {\n            \"$uid\": {\n              \".write\": true,\n              \".validate\": \"!newData.exists() || (newData.hasChildren(['t', 'x', 'y']) && newData.child('x').isNumber() && newData.child('y').isNumber())\"\n            }\n          },\n          \"e\": {\n            \"$uid\": {\n              \".write\": true\n            }\n          },\n          \"m\": {\n            \".write\": true\n          }\n        }\n      }\n    },\n    \"chat\": {\n      \"$scope\": {\n        \".read\": true,\n        \"$msg\": {\n          \".write\": \"!data.exists()\",\n          \".validate\": \"newData.hasChildren(['u', 'n', 'm', 't']) && newData.child('m').isString() && newData.child('m').val().length <= 80 && newData.child('n').isString() && newData.child('n').val().length <= 20\"\n        }\n      }\n    },\n    \"pt\": {\n      \"$pid\": {\n        \".read\": true,\n        \".write\": true\n      }\n    },\n    \"inv\": {\n      \"$uid\": {\n        \".read\": true,\n        \".write\": true\n      }\n    },\n    \"rooms\": {\n      \"$key\": {\n        \".read\": true,\n        \".write\": true,\n        \".validate\": \"!newData.exists() || (newData.child('code').isString() && newData.child('code').val().length <= 12)\"\n      }\n    }\n  }\n}\n";
 
 /* ================= 서버 연결 도우미 =================
    파일을 직접 열거나 고치지 않아도 되게, 게임 안에서
@@ -7448,7 +7448,7 @@ document.head.append(h('style', {}, `
 #olChat .lines{display:flex;flex-direction:column;gap:2px}
 #olChat .ln{background:rgba(30,24,40,.58);color:#f6f1e2;border-radius:8px;padding:3px 8px;max-width:100%;word-break:break-all;transition:opacity .6s}
 #olChat .ln b{font-weight:700;margin-right:4px}
-#olChat .ln.world b{color:#ffd56b}#olChat .ln.map b{color:#9fe0ff}#olChat .ln.party b{color:#9be05a}#olChat .ln.sys{color:#ffd8a8}
+#olChat .ln.room b{color:#ffd56b}#olChat .ln.map b{color:#9fe0ff}#olChat .ln.party b{color:#9be05a}#olChat .ln.sys{color:#ffd8a8}
 #olChat .ln.old{opacity:0}#olChat.open .ln.old{opacity:1}
 #olChat .bar{display:none;gap:4px;margin-top:5px;pointer-events:auto}#olChat.open .bar{display:flex}
 #olChat .bar button{border:2px solid rgba(42,36,51,.3);border-radius:8px;background:#f6f1e2;font-size:12.5px;padding:3px 8px;cursor:pointer}
@@ -7466,7 +7466,7 @@ const OL_BADW = ['시발', '씨발', '씨빨', '시빨', '시바', '씨바', '�
 const OL_BADRE = new RegExp(OL_BADW.map(w => w.split('').map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s.,!?~*_\\-]*')).join('|'), 'gi');
 const olClean = t => String(t || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60).replace(OL_BADRE, m => '♡'.repeat(Math.min(3, Math.max(2, m.length))));
 const OL = {
-  ready: false, db: null, ch: 1, pid: null, party: null, tab: 'map', msgs: [], block: new Set(Store.get('blockList', [])), lastSend: 0, lastTxt: '', subs: {}, ptT: 0,
+  ready: false, db: null, room: null, roomCode: '', roomInfo: null, pid: null, party: null, tab: 'room', hbT: 0, msgs: [], block: new Set(Store.get('blockList', [])), lastSend: 0, lastTxt: '', subs: {}, ptT: 0,
   uid() { return G.user ? G.user.key : null; },
   cfg() { const c = window.RC_FB_BUILT || Store.get('fbConfig', null); return c && c.databaseURL ? c : null; },
   async init() {
@@ -7480,26 +7480,56 @@ const OL = {
     } catch (e) { console.warn('online', e); } finally { this.loading = false; }
   },
   start() {
-    if (!this.ready || !G.user || this.started === G.user.key) return; this.started = G.user.key;
-    this.msgs = []; this.listen('world', this.db.ref('chat/w'));
+    if (!this.ready || !G.user || this.started === G.user.key) return; this.started = G.user.key; this.msgs = [];
     const inv = this.db.ref('inv/' + this.uid()), fn = s => { const v = s.val(); s.ref.remove(); if (!v || Date.now() - (v.t || 0) > 90000 || this.block.has(s.key)) return; this.gotInvite(s.key, v); };
     inv.on('child_added', fn); this.subs.inv = () => inv.off('child_added', fn);
     const pid = Store.get('partyId_' + this.uid(), null); if (pid) this.db.ref('pt/' + pid + '/m/' + this.uid()).once('value').then(s => { if (s.exists()) this.setParty(pid); else Store.del('partyId_' + this.uid()); }).catch(() => { });
-    if (G.running && G.mapId) Net.enterMap(G.mapId);
+    const last = Store.get('room_' + this.uid(), null); if (last) this.joinRoom(last, true); else olSys('메뉴의 "함께하기"에서 방을 만들거나 방 코드로 들어갈 수 있어요');
   },
-  stop() { for (const k of Object.keys(this.subs)) { try { this.subs[k](); } catch (e) { } } this.subs = {}; this.started = null; if (this.pid) { this.db.ref('pt/' + this.pid + '/m/' + this.uid()).update({ on: false }).catch(() => { }); } this.pid = null; this.party = null; this.msgs = []; this.renderParty(); this.renderChat(); },
-  async pickCh(id) {
-    const now = Date.now(), me = this.uid();
-    if (this.party) for (const [u, m] of Object.entries(this.party.m || {})) if (u !== me && m && m.map === id && m.on && m.ch && now - (m.t || 0) < 30000) return m.ch;
-    for (let ch = 1; ch <= 12; ch++) {
-      try { const snap = await olTimeout(this.db.ref('net/c' + ch + '/' + id + '/p').once('value'), 5000); let n = 0; snap.forEach(c => { const v = c.val(); if (c.key !== me && v && now - (v.t || 0) < 60000) n++; }); if (n < ROOM_MAX) return ch; }
-      catch (e) { return 1; }
-    }
-    return 1;
+  stop() { if (this.room) { this.db.ref('rooms/' + this.room + '/m/' + this.uid()).update({ on: false }).catch(() => { }); } this.room = null; this.roomInfo = null; for (const k of Object.keys(this.subs)) { try { this.subs[k](); } catch (e) { } } this.subs = {}; this.started = null; if (this.pid) { this.db.ref('pt/' + this.pid + '/m/' + this.uid()).update({ on: false }).catch(() => { }); } this.pid = null; this.party = null; this.msgs = []; this.renderParty(); this.renderChat(); },
+  keyOf(code) { return String(code || '').trim().toLowerCase().replace(/[\s.#$\[\]\/]/g, '').slice(0, 12); },
+  active(m, now) { return m && m.on !== false && now - (m.t || 0) < 90000; },
+  async roomRead(key) { const s = await olTimeout(this.db.ref('rooms/' + key).once('value'), 6000); return s.val(); },
+  async createRoom(code) {
+    const key = this.keyOf(code); if (key.length < 2) return '방 코드는 2글자 이상이에요';
+    if (OL_BADRE.test(code)) { OL_BADRE.lastIndex = 0; return '방 코드에 쓸 수 없는 말이 있어요'; } OL_BADRE.lastIndex = 0;
+    try {
+      const busy = '이미 쓰고 있는 방 코드예요. 다른 코드로 만들거나 "방 들어가기"로 들어가요', v0 = await this.roomRead(key);
+      if (v0 && Object.values(v0.m || {}).some(m => this.active(m, Date.now()))) return busy;
+      await this.leaveRoom(true); const room = { code: String(code).trim().slice(0, 12), host: this.uid(), hostName: G.save.name, t: Date.now(), m: { [this.uid()]: this.myMember() } };
+      const res = await olTimeout(this.db.ref('rooms/' + key).transaction(cur => (cur && Object.values(cur.m || {}).some(m => this.active(m, Date.now()))) ? undefined : room), 8000);
+      if (!res || !res.committed) return busy;
+      this.setRoom(key); toast('"' + String(code).trim() + '" 방을 만들었어요! 친구에게 코드를 알려 주세요', 'gift'); return null;
+    } catch (e) { return '방을 만들지 못했어요. 인터넷을 확인해 주세요'; }
   },
-  onEnter(id, ch) {
-    this.listen('map', this.db.ref('chat/m_c' + ch + '_' + id));
-    olSys(MAPS[id] ? MAPS[id].name + ' ' + ch + '번 방에 들어왔어요' : ch + '번 방');
+  async joinRoom(code, silent) {
+    const key = this.keyOf(code); if (key.length < 2) return '방 코드를 확인해 주세요';
+    try {
+      const v = await this.roomRead(key), now = Date.now();
+      if (!v || !Object.values(v.m || {}).some(m => this.active(m, now))) { if (silent) { Store.del('room_' + this.uid()); olSys('지난번 방이 닫혀서 혼자 모험해요'); } return '그런 방이 없어요. 코드를 다시 확인해 주세요'; }
+      const n = Object.entries(v.m || {}).filter(([u, m]) => u !== this.uid() && this.active(m, now)).length; if (n >= ROOM_MAX) return '방이 꽉 찼어요 (최대 ' + ROOM_MAX + '명)';
+      if (this.room && this.room !== key) await this.leaveRoom(true);
+      await this.db.ref('rooms/' + key + '/m/' + this.uid()).set(this.myMember()); this.setRoom(key); if (!silent) toast('"' + v.code + '" 방에 들어왔어요!', 'gift'); return null;
+    } catch (e) { return '방에 들어가지 못했어요. 인터넷을 확인해 주세요'; }
+  },
+  setRoom(key) {
+    if (this.subs.roomv) this.subs.roomv(); if (this.subs.room) this.subs.room(); if (this.subs.map) this.subs.map(); delete this.subs.roomv; delete this.subs.room; delete this.subs.map;
+    this.room = key; this.roomInfo = null; this.msgs = this.msgs.filter(m => m.kind === 'sys' || m.kind === 'pchat');
+    if (key) {
+      Store.set('room_' + this.uid(), key); const ref = this.db.ref('rooms/' + key), fn = s => { this.roomInfo = s.val(); this.roomCode = (this.roomInfo && this.roomInfo.code) || key; };
+      ref.on('value', fn); this.subs.roomv = () => ref.off('value', fn); ref.child('m/' + this.uid()).onDisconnect().update({ on: false });
+      this.listen('room', this.db.ref('chat/r_' + key));
+    } else Store.del('room_' + this.uid());
+    if (G.running && G.mapId) Net.enterMap(G.mapId); G._st = null; this.renderChat();
+  },
+  async leaveRoom(quiet) {
+    if (!this.room) return; const key = this.room; if (this.pid) await this.leaveParty(true); this.setRoom(null);
+    try { const r = this.db.ref('rooms/' + key + '/m/' + this.uid()); await r.onDisconnect().cancel(); await r.remove(); const v = await this.roomRead(key), now = Date.now(); if (v && !Object.values(v.m || {}).some(m => this.active(m, now))) await this.db.ref('rooms/' + key).remove(); } catch (e) { }
+    if (!quiet) toast('방에서 나왔어요. 이제 혼자 모험해요');
+  },
+  onEnter(id) {
+    this.listen('map', this.db.ref('chat/m_' + this.room + '_' + id));
+    olSys((MAPS[id] ? MAPS[id].name : id) + ' · "' + (this.roomCode || this.room) + '" 방');
     this.pushMember();
   },
   listen(kind, ref) {
@@ -7509,20 +7539,21 @@ const OL = {
   gotMsg(kind, v) {
     if (!v || this.block.has(v.u)) return; const txt = olClean(v.m); if (!txt) return;
     this.msgs.push({ kind, n: String(v.n || '').slice(0, 12), m: txt, at: Date.now(), u: v.u }); if (this.msgs.length > 60) this.msgs.splice(0, this.msgs.length - 60);
-    if (kind !== 'world' && Date.now() - (v.t || 0) < 8000) { const short = txt.length > 22 ? txt.slice(0, 21) + '…' : txt; if (v.u === this.uid()) G.P.say = { txt: short, t: G.t }; else { const p = Net.peers[v.u]; if (p) p.say = { txt: short, t: G.t }; } }
+    if (kind !== 'room' && Date.now() - (v.t || 0) < 8000) { const short = txt.length > 22 ? txt.slice(0, 21) + '…' : txt; if (v.u === this.uid()) G.P.say = { txt: short, t: G.t }; else { const p = Net.peers[v.u]; if (p) p.say = { txt: short, t: G.t }; } }
     this.renderChat();
   },
   send(raw) {
     const txt = olClean(raw), now = Date.now(); if (!txt) return;
     if (now - this.lastSend < 1200) { olSys('조금만 천천히 보내 주세요'); return; }
     if (txt === this.lastTxt && now - this.lastSend < 6000) { olSys('같은 말을 너무 자주 보냈어요'); return; }
-    const ref = this.tab === 'world' ? this.db.ref('chat/w') : this.tab === 'party' ? (this.pid ? this.db.ref('chat/p_' + this.pid) : null) : (Net.on ? this.db.ref('chat/m_c' + this.ch + '_' + G.mapId) : null);
-    if (!ref) { olSys(this.tab === 'party' ? '파티에 들어가야 파티 채팅을 할 수 있어요' : '이 맵에서는 맵 채팅을 쓸 수 없어요'); return; }
+    if (!this.room) { olSys('방에 들어가면 채팅할 수 있어요. 메뉴의 "함께하기"를 눌러 주세요'); return; }
+    const ref = this.tab === 'room' ? this.db.ref('chat/r_' + this.room) : this.tab === 'party' ? (this.pid ? this.db.ref('chat/p_' + this.pid) : null) : (Net.on ? this.db.ref('chat/m_' + this.room + '_' + G.mapId) : null);
+    if (!ref) { olSys(this.tab === 'party' ? '파티에 들어가야 파티 채팅을 할 수 있어요' : '이 맵에서는 맵 채팅을 쓸 수 없어요. 방 채팅을 써 주세요'); return; }
     this.lastSend = now; this.lastTxt = txt; ref.push({ u: this.uid(), n: G.save.name, m: txt, t: now }).catch(() => olSys('채팅을 보내지 못했어요'));
   },
   /* ---------- 파티 ---------- */
-  myMember() { const s = G.save, P = G.P; let hp = 100; try { hp = P ? Math.round(clamp(P.hp / st().maxhp, 0, 1) * 100) : 100; } catch (e) { } return { n: s.name, lv: s.level, cl: s.cls || '', map: G.mapId || '', ch: this.ch, hp, on: true, t: Date.now() }; },
-  pushMember() { if (this.pid && this.db) this.db.ref('pt/' + this.pid + '/m/' + this.uid()).update(this.myMember()).catch(() => { }); },
+  myMember() { const s = G.save, P = G.P; let hp = 100; try { hp = P ? Math.round(clamp(P.hp / st().maxhp, 0, 1) * 100) : 100; } catch (e) { } return { n: s.name, lv: s.level, cl: s.cls || '', map: G.mapId || '', room: this.room || '', hp, on: true, t: Date.now() }; },
+  pushMember() { if (!this.db) return; const me = this.myMember(); if (this.pid) this.db.ref('pt/' + this.pid + '/m/' + this.uid()).update(me).catch(() => { }); if (this.room) this.db.ref('rooms/' + this.room + '/m/' + this.uid()).update(me).catch(() => { }); },
   setParty(pid) {
     if (this.subs.party) this.subs.party(); if (this.subs.pchat) this.subs.pchat(); delete this.subs.party; delete this.subs.pchat;
     this.pid = pid; this.party = null; if (pid) Store.set('partyId_' + this.uid(), pid); else Store.del('partyId_' + this.uid());
@@ -7550,8 +7581,6 @@ const OL = {
       if (snap.numChildren() >= PARTY_MAX) { toast('파티가 꽉 찼어요'); return; }
       if (this.pid && this.pid !== v.pid) await this.leaveParty(true);
       await this.db.ref('pt/' + v.pid + '/m/' + this.uid()).set(this.myMember()); this.setParty(v.pid); toast('파티에 들어왔어요! 같은 맵에 가면 같은 방으로 모여요', 'gift');
-      for (let i = 0; i < 25 && !this.party; i++) await new Promise(r => setTimeout(r, 100));
-      if (G.mapId && Net.on) { const m = snap.val() || {}; if (Object.values(m).some(x => x && x.map === G.mapId && x.ch && x.ch !== this.ch)) Net.enterMap(G.mapId); }
     } catch (e) { toast('파티에 들어가지 못했어요'); }
   },
   async leaveParty(quiet) {
@@ -7560,19 +7589,20 @@ const OL = {
     if (!quiet) toast('파티에서 나왔어요');
   },
   kick(uid) { if (this.pid && this.party && this.leaderOf(this.party) === this.uid()) this.db.ref('pt/' + this.pid + '/m/' + uid).remove(); },
-  partyHere() { if (!this.party || !Net.on) return 0; const me = this.uid(), now = Date.now(); return Object.entries(this.party.m || {}).filter(([u, m]) => u !== me && m && m.on && m.map === G.mapId && m.ch === this.ch && now - (m.t || 0) < 30000 && Net.peers[u]).length; },
+  partyHere() { if (!this.party || !Net.on) return 0; const me = this.uid(), now = Date.now(); return Object.entries(this.party.m || {}).filter(([u, m]) => u !== me && m && m.on && m.map === G.mapId && m.room === this.room && now - (m.t || 0) < 30000 && Net.peers[u]).length; },
   tick(dt) {
     if (!this.ready || !G.running) return;
     if ((this.ptT -= dt) <= 0) { this.ptT = 3; if (this.pid) this.pushMember(); this.renderParty(); G._st = null; }
+    if (this.room && (this.hbT -= dt) <= 0) { this.hbT = 20; this.pushMember(); }
     for (const m of this.msgs) if (!m.old && Date.now() - m.at > 12000) { m.old = true; this.dirty = true; } if (this.dirty) { this.dirty = false; this.renderChat(); }
   },
   /* ---------- 화면 ---------- */
   ui() {
     if (!this.ready) return;
     if (!$('#olChat')) {
-      const box = h('div', { id: 'olChat', class: IS_TOUCH ? 'touch' : '' }, h('div', { class: 'lines' }), h('div', { class: 'bar' }, ...[['map', '맵'], ['world', '전체'], ['party', '파티']].map(([k, t]) => h('button', { 'data-k': k, onclick: () => { this.tab = k; this.renderChat(); this.input.focus(); } }, t)), h('input', { maxlength: 60, placeholder: 'Enter로 보내기, Esc로 닫기' })));
+      const box = h('div', { id: 'olChat', class: IS_TOUCH ? 'touch' : '' }, h('div', { class: 'lines' }), h('div', { class: 'bar' }, ...[['map', '맵'], ['room', '방'], ['party', '파티']].map(([k, t]) => h('button', { 'data-k': k, onclick: () => { this.tab = k; this.renderChat(); this.input.focus(); } }, t)), h('input', { maxlength: 60, placeholder: 'Enter로 보내기, Esc로 닫기' })));
       document.body.append(box); this.box = box; this.input = box.querySelector('input');
-      this.input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { const v = this.input.value; this.input.value = ''; if (v.trim()) this.send(v); this.closeChat(); } else if (e.key === 'Escape') this.closeChat(); else if (e.key === 'Tab') { e.preventDefault(); const o = ['map', 'world', 'party']; this.tab = o[(o.indexOf(this.tab) + 1) % 3]; this.renderChat(); } });
+      this.input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { const v = this.input.value; this.input.value = ''; if (v.trim()) this.send(v); this.closeChat(); } else if (e.key === 'Escape') this.closeChat(); else if (e.key === 'Tab') { e.preventDefault(); const o = ['map', 'room', 'party']; this.tab = o[(o.indexOf(this.tab) + 1) % 3]; this.renderChat(); } });
       document.body.append(h('div', { id: 'olParty' }));
       if (IS_TOUCH) { const b = h('button', { id: 'olBtn', class: 'btn', onclick: () => this.openChat() }, '채팅'); document.body.append(b); }
     }
@@ -7583,7 +7613,7 @@ const OL = {
   renderChat() {
     const box = this.box; if (!box) return; box.style.display = G.running && this.ready ? '' : 'none'; const btn = $('#olBtn'); if (btn) btn.style.display = G.running && this.ready && IS_TOUCH ? 'block' : 'none';
     const lines = box.querySelector('.lines'), show = this.msgs.slice(-(box.classList.contains('open') ? 12 : 6));
-    const lab = { map: '맵', world: '전체', party: '파티', pchat: '파티', sys: '' };
+    const lab = { map: '맵', room: '방', party: '파티', pchat: '파티', sys: '' };
     lines.replaceChildren(...show.map(m => h('div', { class: 'ln ' + (m.kind === 'pchat' ? 'party' : m.kind) + (m.old ? ' old' : '') }, m.kind === 'sys' ? m.m : [h('b', {}, '[' + lab[m.kind] + '] ' + m.n), m.m])));
     box.querySelectorAll('.bar button').forEach(b => b.classList.toggle('on', b.dataset.k === this.tab));
   },
@@ -7595,21 +7625,33 @@ const OL = {
 };
 function olSys(t) { OL.msgs.push({ kind: 'sys', m: t, at: Date.now() }); OL.renderChat(); }
 UI.people = () => {
-  AU.sfx('open'); const O = OL, ps = Net.on ? Net.present().map(k => [k, Net.peers[k].s]) : [], me = O.uid();
-  const row = ([u, s]) => h('div', { class: 'li' }, h('div', { class: 't' }, h('b', {}, s.n + (O.party && O.party.m && O.party.m[u] ? ' (파티)' : '')), h('span', {}, 'Lv.' + s.lv + (CLASSES[s.cl] ? ', ' + CLASSES[s.cl].name : ''))),
-    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { close(); O.invite(u, s.n); } }, '파티 초대'), h('button', { class: 'btn', onclick: () => { if (O.block.has(u)) O.block.delete(u); else O.block.add(u); Store.set('blockList', [...O.block]); toast(O.block.has(u) ? s.n + '님을 차단했어요. 채팅이 안 보여요' : '차단을 풀었어요'); close(); } }, O.block.has(u) ? '차단 풀기' : '차단')));
+  AU.sfx('open'); const O = OL, me = O.uid();
+  if (!O.ready) { Modal.open('함께하기', h('p', { class: 'sub' }, '실시간 서버가 아직 연결되지 않았어요.'), { mw: 420 }); return; }
+  if (!O.room) {
+    const code = h('input', { maxlength: 12, placeholder: '방 코드 (2~12글자)', autocomplete: 'off' }), msg = h('div', { class: 'err' }), last = Store.get('lastRoomCode_' + me, '');
+    if (last) code.value = last;
+    const go = async make => { msg.textContent = ''; const v = code.value.trim(); if (!v) { msg.textContent = '방 코드를 적어 주세요'; return; } Store.set('lastRoomCode_' + me, v); const err = make ? await O.createRoom(v) : await O.joinRoom(v); if (err) msg.textContent = err; else close(); };
+    const { close } = Modal.open('함께하기', h('div', { class: 'col' },
+      h('p', { class: 'sub' }, '지금은 혼자 모험하고 있어요. 방을 만들거나 친구가 알려 준 방 코드로 들어가면, 같은 맵에서 서로 보이고 채팅과 파티를 할 수 있어요.'),
+      code, msg, h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: () => go(true) }, '방 만들기'), h('button', { class: 'btn', onclick: () => go(false) }, '방 들어가기')),
+      h('p', { class: 'small' }, '한 방에 최대 ' + ROOM_MAX + '명까지 들어올 수 있어요. 방을 만든 사람도 다른 친구와 똑같이 모험해요.')), { mw: 440 });
+    setTimeout(() => code.focus(), 30); return;
+  }
+  const info = O.roomInfo || {}, now = Date.now(), mem = Object.entries(info.m || {}).filter(([u, m]) => O.active(m, now)), here = new Set(Net.on ? Net.present() : []);
+  const row = ([u, m]) => h('div', { class: 'li' }, h('div', { class: 't' }, h('b', {}, m.n + (u === me ? ' (나)' : '') + (u === info.host ? ' · 방장' : '') + (O.party && O.party.m && O.party.m[u] ? ' · 파티' : '')), h('span', {}, 'Lv.' + m.lv + (CLASSES[m.cl] ? ', ' + CLASSES[m.cl].name : '') + ' · ' + ((MAPS[m.map] || {}).name || '이동 중'))),
+    u === me ? null : h('div', { class: 'row' }, here.has(u) ? h('button', { class: 'btn', onclick: () => { close(); O.invite(u, m.n); } }, '파티 초대') : null, h('button', { class: 'btn', onclick: () => { if (O.block.has(u)) O.block.delete(u); else O.block.add(u); Store.set('blockList', [...O.block]); toast(O.block.has(u) ? m.n + '님을 차단했어요. 채팅이 안 보여요' : '차단을 풀었어요'); close(); } }, O.block.has(u) ? '차단 풀기' : '차단')));
   const pm = O.party ? Object.entries(O.party.m || {}) : [], L = O.party ? O.leaderOf(O.party) : null;
-  const { close } = Modal.open('함께하는 모험가', h('div', { class: 'col' },
-    h('p', { class: 'sub' }, !O.ready ? '실시간 서버가 연결되지 않았어요.' : !Net.on ? '보스전, 시련, 중간 보스 맵은 혼자 도전하는 공간이에요.' : (MAPS[G.mapId] || {}).name + ' ' + O.ch + '번 방, 지금 ' + (ps.length + 1) + ' / ' + ROOM_MAX + '명'),
-    ps.length ? h('div', { class: 'list' }, ...ps.map(row)) : h('p', { class: 'small' }, '이 방에는 아직 다른 모험가가 없어요.'),
-    O.party ? h('div', { class: 'col mt' }, h('b', {}, '내 파티 (' + pm.length + ' / ' + PARTY_MAX + ')'), ...pm.map(([u, m]) => h('div', { class: 'row', style: 'justify-content:space-between' }, h('span', {}, (u === L ? '★ ' : '') + m.n + ' Lv.' + m.lv), L === me && u !== me ? h('button', { class: 'linkbtn', onclick: () => { O.kick(u); close(); } }, '내보내기') : null)), h('button', { class: 'btn danger', onclick: () => { close(); O.leaveParty(); } }, '파티 나가기')) : h('p', { class: 'small mt' }, '모험가 옆 "파티 초대"로 최대 ' + PARTY_MAX + '명까지 파티를 만들 수 있어요. 같은 방 파티원 한 명마다 경험치가 10%씩 더 들어와요.')), { mw: 460 });
+  const { close } = Modal.open('함께하기 · "' + (info.code || O.room) + '" 방', h('div', { class: 'col' },
+    h('p', { class: 'sub' }, '방 인원 ' + mem.length + ' / ' + ROOM_MAX + '명. 같은 맵에 있는 친구에게만 파티 초대를 보낼 수 있어요.' + (Net.on ? '' : ' 지금 맵은 혼자 도전하는 곳이에요.')),
+    h('div', { class: 'list' }, ...mem.map(row)),
+    O.party ? h('div', { class: 'col mt' }, h('b', {}, '내 파티 (' + pm.length + ' / ' + PARTY_MAX + ')'), ...pm.map(([u, m]) => h('div', { class: 'row', style: 'justify-content:space-between' }, h('span', {}, (u === L ? '★ ' : '') + m.n + ' Lv.' + m.lv), L === me && u !== me ? h('button', { class: 'linkbtn', onclick: () => { O.kick(u); close(); } }, '내보내기') : null)), h('button', { class: 'btn', onclick: () => { close(); O.leaveParty(); } }, '파티 나가기')) : h('p', { class: 'small mt' }, '파티는 최대 ' + PARTY_MAX + '명이에요. 같은 맵의 파티원 한 명마다 경험치가 10%씩 더 들어와요.'),
+    h('button', { class: 'btn danger mt', onclick: () => { close(); O.leaveRoom(); } }, '방 나가기')), { mw: 480 });
 };
 /* ---------- 엔진 연결 ---------- */
 (() => { const base = calcStats; calcStats = function () { const S = base(); const n = OL.partyHere(); if (n) S.expM = (S.expM || 1) * (1 + .1 * Math.min(3, n)); return S; }; })();
 Net.enterMap = function (id) {
-  if (!OL.ready) return; Net._orig.leave.call(Net); if (!Net.allowed(id)) { OL.ch = 0; return; }
-  const tok = (Net._tok = (Net._tok || 0) + 1); G.ens = []; for (const sp of G.spawners) { sp.alive = 0; sp.timer = 0; }
-  OL.pickCh(id).then(ch => { if (Net._tok !== tok || G.mapId !== id || !G.running) return; OL.ch = ch; G.server = Object.assign({}, G.server, { sid: 'c' + ch }); Net._orig.enterMap.call(Net, id); OL.onEnter(id, ch); });
+  if (!OL.ready) return; Net._orig.leave.call(Net); if (!OL.room || !Net.allowed(id)) return;
+  G.server = Object.assign({}, G.server, { sid: 'r_' + OL.room }); Net._orig.enterMap.call(Net, id); OL.onEnter(id);
 };
 addEventListener('keydown', e => {
   if (!OL.ready || !G.running || e.code !== 'Enter') return; const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA') return;
@@ -7619,7 +7661,18 @@ addEventListener('keydown', e => {
 (() => { const base = hideGame; hideGame = function () { const r = base.apply(this, arguments); if (OL.box) { OL.closeChat(); OL.renderChat(); } OL.renderParty(); return r; }; })();
 (() => { const base = logout; logout = async function () { if (OL.ready) { Net._orig.leave.call(Net); OL.stop(); } return base.apply(this, arguments); }; })();
 (() => { const base = updatePlayer; updatePlayer = function (dt) { base(dt); OL.tick(dt); }; })();
-(() => { const base = UI.menu; UI.menu = () => { base(); if (!OL.ready || !G.running) return; const col = document.querySelector('.modal .col'); if (col) col.insertBefore(h('button', { class: 'btn wide', onclick: () => { Modal.closeAll(); UI.people(); } }, '함께하는 모험가 · 파티'), col.children[2] || null); }; })();
+(() => { const base = UI.menu; UI.menu = () => { base(); if (!OL.ready || !G.running) return; const col = document.querySelector('.modal .col'); if (col) col.insertBefore(h('button', { class: 'btn wide', onclick: () => { Modal.closeAll(); UI.people(); } }, OL.room ? '함께하기 · "' + (OL.roomCode || OL.room) + '" 방' : '함께하기 (방 만들기 · 들어가기)'), col.children[2] || null); }; })();
+
+/* ================= 고친 점 모음 =================
+   월드를 정화하면 다음 월드 통행증을 그 자리에서 바로 줘요 (예전에는 다른 맵으로 이동해야 받았어요). */
+function grantPassNow(id, who, msg) {
+  const s = G.save; if (!s || (s.inv && s.inv[id])) return false;
+  addItem(id, 1, true); saveNow(); AU.sfx('levelup');
+  after(.6, () => toast(who + msg, 'gift')); return true;
+}
+(() => { const base = UI.worldClear; UI.worldClear = function () { grantPassNow('pass_w2', '모스 촌장', '에게 사막 통행증을 받았어요! 바람개비 마을의 대상 마차를 타면 모래시계 사막으로 가요'); return base.apply(this, arguments); }; })();
+(() => { const base = w2Clear; w2Clear = function () { grantPassNow('pass_w3', '사하르 족장', '에게 설원 썰매표를 받았어요! 신기루 오아시스의 썰매 정류장에서 서리 협곡으로 가요'); return base.apply(this, arguments); }; })();
+(() => { const base = w3Clear; w3Clear = function () { grantPassNow('pass_w4', '하르마 촌장', '에게 구름 열기구 탑승권을 받았어요! 눈송이 마을의 열기구 정류장에서 구름 섬으로 가요'); return base.apply(this, arguments); }; })();
 
 /* ================= BOOT ================= */
 let lastT = performance.now();
